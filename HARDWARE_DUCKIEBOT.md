@@ -75,6 +75,32 @@ If you'd rather not join the ROS network for the camera, set
 `duckiebot.camera.source: stream` and point `stream_url` at an MJPEG/RTSP URL — the
 command path still uses ROS.
 
+### Recommended on a Duckietown VM: the rosbridge path (`--bridge`)
+On a Duckietown VM, ROS 1 Noetic lives inside the `dts` Docker containers, NOT in the
+host Python where torch is installed — so `run_car.py --source ros` (which imports
+`rospy`) won't run in your venv. Use the **rosbridge websocket** instead: `roslibpy`
+(pure Python, pip-installed) connects to `rosbridge_websocket` on the bot, so the whole
+pipeline — camera, ToF, and car_cmd — runs from the torch venv with no ROS install.
+
+```bash
+pip install roslibpy        # already in requirements.txt
+# confirm rosbridge is reachable on the bot (port 9090):
+python3 -c "import roslibpy,time; r=roslibpy.Ros('ducki.local',9090); r.run(); \
+            time.sleep(2); print('connected:', r.is_connected); r.terminate()"
+```
+If that prints `connected: True`, you're set. If `False`, rosbridge isn't running on the
+bot — the Duckietown **dashboard** (open `http://ducki.local` in a browser) uses
+rosbridge, so if the dashboard loads, 9090 is up; otherwise start rosbridge on the robot
+(e.g. via the dashboard/portainer, or a `rosbridge_server` container).
+
+Run it (camera + ToF + commands all over the bridge):
+```bash
+python run_car.py --bridge --show            # dry-run (no motion) if safety.dry_run: true
+python run_car.py --bridge --drive --show    # LIVE motion, low speed, e-stop in hand
+```
+Config: `duckiebot.bridge.{enabled,host,port}` (host `ducki.local`, port `9090`). `--bridge`
+flips it on without editing the file.
+
 ## 2. Laptop environment
 
 ```bash

@@ -23,3 +23,7 @@ nuscenes-devkit>=1.1.11
 
 # Optional ReID for stronger track IDs (BoT-SORT can use these weights)
 # boxmot>=10.0
+
+# Duckiebot bridge: pure-Python ROS client over rosbridge websocket (no ROS install
+# needed on the laptop/VM). Used by hardware/rosbridge.py + run_car.py --bridge.
+roslibpy>=1.5

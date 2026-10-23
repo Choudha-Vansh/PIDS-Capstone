@@ -97,6 +97,13 @@ duckiebot:
     stream_url:   ""
     fps:          30
 
+  # --- rosbridge websocket link (run the whole pipeline from the laptop's torch
+  #     venv, no native ROS install needed; talks to the bot over rosbridge) ---
+  bridge:
+    enabled:      false            # set true (or pass --bridge) to use roslibpy/rosbridge
+    host:         "ducki.local"    # the Duckiebot host running rosbridge_websocket
+    port:         9090             # default rosbridge websocket port
+
   # --- command channel (back to the bot over ROS) ---
   command:
     # Duckietown accepts a Twist2DStamped on the car-command topic.

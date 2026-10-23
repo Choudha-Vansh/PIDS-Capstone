@@ -36,6 +36,9 @@ def main():
     ap.add_argument("--drive", action="store_true",
                     help="force real Duckiebot actuator (motion!), overriding config")
     ap.add_argument("--show", action="store_true", help="show a live overlay window")
+    ap.add_argument("--bridge", action="store_true",
+                    help="use the rosbridge websocket link (roslibpy) instead of native ROS "
+                         "— run the whole pipeline from the laptop venv, no ROS install")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
@@ -47,32 +50,46 @@ def main():
     if args.url:
         d.setdefault("camera", {})["stream_url"] = args.url
         d.setdefault("camera", {})["source"] = "stream"
+    if args.bridge:
+        d.setdefault("bridge", {})["enabled"] = True
     if args.dry_run:
         d.setdefault("safety", {})["dry_run"] = True
     if args.drive:
         d.setdefault("safety", {})["dry_run"] = False
 
-    from sensors.duckiebot_source import DuckiebotCameraSource
     from perception.tracker import PoseTracker
     from control.hazard import HazardConfig, evaluate
     from control.cruise_policy import CruisePolicy, CruiseConfig
     from control.safety_stop import SafetyConfig, apply_safety_stop
-    from sensors.tof_range import ToFRangeReader
-    from hardware.actuator import build_actuator
     from common.latency import ReactionTimer
 
-    source = DuckiebotCameraSource(cfg)
+    use_bridge = d.get("bridge", {}).get("enabled", False)
+    if use_bridge:
+        # one rosbridge websocket provides camera + ToF + car_cmd
+        from hardware.rosbridge import build_bridge
+        source, tof, actuator = build_bridge(cfg)
+        # the bridge actuator IS the Duckiebot — honour dry-run by swapping in NoOp
+        if d.get("safety", {}).get("dry_run", True):
+            from hardware.actuator import NoOpActuator
+            actuator = NoOpActuator()
+            print("NOTE: --bridge with dry-run -> perception/decisions only, NO car_cmd sent.")
+    else:
+        from sensors.duckiebot_source import DuckiebotCameraSource
+        from sensors.tof_range import ToFRangeReader
+        from hardware.actuator import build_actuator
+        source = DuckiebotCameraSource(cfg)
+        tof = ToFRangeReader(cfg)
+        actuator = build_actuator(cfg)
+
     tracker = PoseTracker(cfg["perception"]["pose_model"],
                           conf=cfg["perception"]["det_conf"],
                           tracker_cfg=cfg["perception"]["tracker"])
     hz_cfg = HazardConfig.from_config(cfg)
     policy = CruisePolicy(CruiseConfig.from_config(cfg))
-    actuator = build_actuator(cfg)
     reaction = ReactionTimer(fps=source.fps)
 
     # independent ToF range safety net (fallback stop below a hard distance)
     safety_cfg = SafetyConfig.from_config(cfg)
-    tof = ToFRangeReader(cfg)
 
     # optional intent model (detection-first by default; enable via hazard.use_intent_model)
     intent = None
@@ -83,7 +100,8 @@ def main():
         fc = FeatureConfig(use_pose=cfg["intent"]["use_pose"], use_3d=cfg["intent"]["use_3d"])
 
     dry = cfg["duckiebot"]["safety"].get("dry_run", True)
-    print(f"Duckiebot '{cfg['duckiebot']['vehicle_name']}'  mode={cfg['duckiebot']['camera']['source']}"
+    cam_mode = "rosbridge" if use_bridge else cfg["duckiebot"]["camera"]["source"]
+    print(f"Duckiebot '{cfg['duckiebot']['vehicle_name']}'  camera={cam_mode}"
           f"  actuator={'NoOp (dry-run)' if dry else 'DUCKIEBOT (LIVE MOTION)'}")
     if not dry:
         print("!! LIVE MOTION ENABLED — keep the e-stop/shutdown button within reach !!")
