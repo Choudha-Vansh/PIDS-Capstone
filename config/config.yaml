@@ -86,7 +86,7 @@ dashboard:
 # commands back over the Duckietown ROS stack. Everything device-specific lives
 # here so the rest of the code stays hardware-agnostic.
 duckiebot:
-  vehicle_name:   "duckiebot"       # the robot's hostname (ROS namespace). CHANGE THIS.
+  vehicle_name:   "ducki"           # the robot's hostname (ROS namespace) — from `dts fleet discover`
 
   # --- camera feed (streamed from the bot over WiFi) ---
   camera:
