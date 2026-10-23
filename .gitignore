@@ -1,0 +1,33 @@
+# Raw datasets (never commit — huge, license-gated)
+datasets/
+data_raw/
+*.mp4
+*.avi
+*.pkl
+*.db
+
+# Prepared arrays / checkpoints
+artifacts/
+*.npy
+*.pth
+*.onnx
+*.engine
+
+# Model weights downloaded at setup
+weights/
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Results / logs
+runs/
+results/
+*.log
+
+# Logbooks contain student names/PRNs — keep out of the repo (share privately)
+*.docx

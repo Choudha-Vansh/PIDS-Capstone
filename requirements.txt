@@ -1,0 +1,25 @@
+# Core
+numpy>=1.24
+scipy>=1.10
+pyyaml>=6.0
+opencv-python>=4.9
+matplotlib>=3.8
+
+# Deep learning (install the CUDA build that matches your GPU from pytorch.org)
+torch>=2.1
+torchvision>=0.16
+
+# Detection + pose + tracking
+ultralytics>=8.1        # YOLO11-pose / YOLOv8-pose + BoT-SORT/ByteTrack
+
+# Metrics / eval
+scikit-learn>=1.3
+
+# Dashboard
+PyQt5>=5.15
+
+# Multimodal dataset (only needed for the nuScenes fusion path)
+nuscenes-devkit>=1.1.11
+
+# Optional ReID for stronger track IDs (BoT-SORT can use these weights)
+# boxmot>=10.0

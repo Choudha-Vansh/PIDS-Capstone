@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Central config. NO hardcoded absolute paths anywhere else in the codebase —
+# everything reads from here. Paths are relative to the adas_sim/ root unless
+# you make them absolute. Edit the `paths` block to point at your data.
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+  # Raw datasets (downloaded via SETUP.md). Leave blank if you don't have one yet.
+  jaad_root:      "datasets/JAAD"          # expects JAAD_clips/ + annotations XML
+  pie_root:       "datasets/PIE"           # expects PIE_clips/ + annotations
+  nuscenes_root:  "datasets/nuscenes"      # expects v1.0-mini or v1.0-trainval
+  nuscenes_version: "v1.0-mini"
+
+  # Prepared arrays + checkpoints (created by the pipeline)
+  artifacts:      "artifacts"
+  weights:        "weights"                # YOLO-pose / ReID weights land here
+  results:        "results"
+
+# ── Perception ────────────────────────────────────────────────────────────────
+perception:
+  pose_model:       "weights/yolo11n-pose.pt"   # downloaded in SETUP.md
+  det_conf:         0.35
+  tracker:          "botsort.yaml"              # ultralytics BoT-SORT config
+  track_buffer:     90                          # frames to keep a lost track (anti ID-switch)
+  keypoints:        17                          # COCO format
+
+# Monocular distance (camera-only demo-video path). Rough pinhole estimate:
+# distance ≈ (real_pedestrian_height_m * focal_px) / bbox_height_px
+monocular:
+  assumed_ped_height_m: 1.7
+  focal_px:             1000        # calibrate per camera; default is a guess
+  # ground-plane fallback if you have camera height + pitch, else use height method
+  use_height_method:    true
+
+# ── Intent model ────────────────────────────────────────────────────────────────
+intent:
+  seq_length:       16          # frames of history fed to the temporal model
+  predict_horizon:  8           # predict crossing this many frames ahead
+  model_type:       "gru"       # "gru" | "transformer"
+  hidden_size:      128
+  num_layers:       2
+  dropout:          0.3
+  # feature vector per frame per track (built in intent/features.py):
+  #   normalized keypoints (17*2) + bbox (4) + 3D pos (3) + 3D vel (3)
+  #   + dist_to_ego_path (1) + ego_speed (1)
+  use_pose:         true
+  use_3d:           true
+
+train:
+  batch_size:       128
+  epochs:           60
+  lr:               0.001
+  weight_decay:     0.0001
+  early_stop_patience: 10
+  seed:             42
+  # split by scene/video id so frames from one clip never span train+test
+  split:            {train: 0.7, val: 0.15, test: 0.15}
+
+# ── Decision / AEB ──────────────────────────────────────────────────────────────
+decision:
+  # TTC thresholds (seconds). Escalate as TTC drops AND crossing prob is high.
+  fcw_ttc_s:         2.6        # forward-collision warning
+  partial_aeb_ttc_s: 1.6        # partial braking
+  full_aeb_ttc_s:    0.9        # full braking
+  crossing_prob_gate: 0.5       # only escalate braking if crossing prob >= this
+  min_track_conf:    0.4
+
+vehicle:
+  mass_kg:           1500
+  max_decel_mps2:    8.0        # ~0.8g on dry asphalt
+  partial_decel_mps2: 3.5
+  road_friction:     0.8
+  actuation_delay_s: 0.2        # brake hydraulic build-up (simulated)
+
+# ── Dashboard ────────────────────────────────────────────────────────────────
+dashboard:
+  window_title:   "ADAS Pedestrian Intent + AEB (Simulation)"
+  video_fps:      30
+  show_skeleton:  true
+  show_trails:    true
+  trail_length:   40
+  export_log:     "results/session_log.csv"
+
+# ── Duckiebot hardware bring-up (live loop; run_car.py) ──────────────────────
+# Laptop runs perception on the Duckiebot's WiFi camera feed and sends drive
+# commands back over the Duckietown ROS stack. Everything device-specific lives
+# here so the rest of the code stays hardware-agnostic.
+duckiebot:
+  vehicle_name:   "duckiebot"       # the robot's hostname (ROS namespace). CHANGE THIS.
+
+  # --- camera feed (streamed from the bot over WiFi) ---
+  camera:
+    source:       "ros"             # "ros" (camera_node topic) | "stream" (MJPEG/RTSP URL)
+    # ROS mode: compressed-image topic published by the Duckiebot camera node.
+    ros_topic:    "/{veh}/camera_node/image/compressed"
+    # stream mode: set an MJPEG/RTSP URL instead (e.g. http://<bot-ip>:8080/stream)
+    stream_url:   ""
+    fps:          30
+
+  # --- command channel (back to the bot over ROS) ---
+  command:
+    # Duckietown accepts a Twist2DStamped on the car-command topic.
+    car_cmd_topic: "/{veh}/car_cmd_switch_node/cmd"
+    # optional: subscribe to wheel encoders to report real ego speed (else cruise speed is assumed)
+    use_encoder_speed: false
+
+  # --- driving behaviour: cruise -> brake on in-path pedestrian -> resume when clear ---
+  control:
+    cruise_speed_mps:   0.22        # forward speed when path is clear (Duckiebot scale)
+    cruise_omega:       0.0         # straight-line for the demo (no steering yet)
+    brake_on_frames:    3           # consecutive hazard frames before braking (debounce)
+    resume_clear_frames: 8          # consecutive clear frames before resuming (hysteresis)
+
+  # --- ToF range safety net (independent fallback) ---
+  # The Duckiebot's front time-of-flight sensor gives a direct distance to the
+  # nearest object ahead. This is a SEPARATE, obstacle-agnostic last line of
+  # defense: if the camera path fails to stop in time, the bot is forced to a
+  # stop once anything is within `safety_stop_distance_m`. It does NOT replace
+  # the camera/pedestrian logic — it backs it up.
+  tof:
+    enabled:              true
+    ros_topic:            "/{veh}/front_center_tof_driver_node/range"
+    unit:                 "m"      # sensor_msgs/Range is metres; set "cm" if yours reports cm
+    safety_stop_distance_m: 0.30   # HARD stop if any object is within this range (30 cm)
+    max_valid_m:          1.20     # ignore readings beyond this (out-of-range / spurious)
+
+  # --- hazard gate (detection-first: person in path AND close enough) ---
+  hazard:
+    corridor_margin_m:  0.30        # pedestrian within this lateral offset = in path
+    min_bbox_height_frac: 0.25      # ignore people smaller than this frac of frame height (too far)
+    trigger_distance_m: 2.0         # brake only when estimated distance <= this
+    use_intent_model:   false       # false = detection-only; true = gate on trained crossing prob
+    intent_prob_gate:   0.5         # used only when use_intent_model is true
+
+  safety:
+    dry_run:        true            # TRUE = NoOp actuator (no motion); set false to drive the motors
+    command_rate_hz: 10             # how often to publish commands
+    watchdog_timeout_s: 0.5         # if no fresh frame within this, command a stop
